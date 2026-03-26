@@ -1,7 +1,10 @@
 '''
 Portfolio cost functions
 
-@author Aidan Ryther arr9180
+@authors
+Aidan Ryther arr9180
+Tiffany Lee tl1105
+Grayson Siegler grs2116
 '''
 
 import numpy as np
