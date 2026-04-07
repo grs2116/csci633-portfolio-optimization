@@ -9,6 +9,7 @@ Grayson Siegler grs2116
 
 import os
 import inspect
+import time
 
 import numpy as np
 
@@ -104,7 +105,10 @@ def run_one_trial(algorithm, algorithm_args, cost_fn):
 
     curr_args["f"] = cost_fn
 
+    start_time = time.perf_counter()
     best_weights, best_cost, final_population, final_costs = algorithm(**curr_args)
+    end_time = time.perf_counter()
+    runtime_seconds = end_time - start_time
 
     if max_weight is None:
         fixed_weights = normalize_weights(best_weights)
@@ -116,6 +120,7 @@ def run_one_trial(algorithm, algorithm_args, cost_fn):
         "best_cost": float(best_cost),
         "final_population": final_population,
         "final_costs": np.asarray(final_costs, dtype=float),
+        "runtime_seconds": float(runtime_seconds),
     }
 
     if mean_returns is not None and covariance_matrix is not None:
@@ -198,6 +203,19 @@ def summarize_results(results):
             summary[metric_name + "_std"] = metric_std
             summary[metric_name + "_best"] = float(metric_vals[best_idx])
 
+    if "runtime_seconds" in results[0]:
+        runtime_vals = np.array([result["runtime_seconds"] for result in results], dtype=float)
+
+        if len(runtime_vals) > 1:
+            runtime_std = float(np.std(runtime_vals, ddof=1))
+        else:
+            runtime_std = 0.0
+
+        summary["runtime_mean"] = float(np.mean(runtime_vals))
+        summary["runtime_std"] = runtime_std
+        summary["runtime_min"] = float(np.min(runtime_vals))
+        summary["runtime_max"] = float(np.max(runtime_vals))
+
     return summary
 
 
@@ -256,6 +274,10 @@ def plot_results(results):
             summary_lines.append("  cost std: " + str(curr_summary["cost_std"]))
             summary_lines.append("  cost best: " + str(curr_summary["cost_best"]))
             summary_lines.append("  cost worst: " + str(curr_summary["cost_worst"]))
+
+            if "runtime_mean" in curr_summary:
+                summary_lines.append("  runtime mean: " + str(curr_summary["runtime_mean"]))
+                summary_lines.append("  runtime std: " + str(curr_summary["runtime_std"]))
 
             if "return_mean" in curr_summary:
                 summary_lines.append("  return mean: " + str(curr_summary["return_mean"]))
@@ -326,6 +348,10 @@ def plot_results(results):
             summary_lines.append("    cost std: " + str(curr_summary["cost_std"]))
             summary_lines.append("    cost best: " + str(curr_summary["cost_best"]))
             summary_lines.append("    cost worst: " + str(curr_summary["cost_worst"]))
+
+            if "runtime_mean" in curr_summary:
+                summary_lines.append("    runtime mean: " + str(curr_summary["runtime_mean"]))
+                summary_lines.append("    runtime std: " + str(curr_summary["runtime_std"]))
 
             if "return_mean" in curr_summary:
                 summary_lines.append("    return mean: " + str(curr_summary["return_mean"]))

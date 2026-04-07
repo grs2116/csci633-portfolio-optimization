@@ -22,6 +22,7 @@ from cost import portfolio_return
 from cost import portfolio_risk
 from cost import portfolio_cost
 from evaluate import plot_results
+from evaluate import run_one_trial
 from evaluate import run_trials
 from evaluate import summarize_results
 from load_data import load_all_datasets
@@ -110,9 +111,11 @@ def run_all_experiments(data_dir):
         "mean_cost_by_algorithm.png",
         "mean_cost_by_dataset.png",
         "overall_mean_cost.png",
+        "overall_runtime.png",
         "overall_return_volatility.png",
         "portfolio_risk_return_by_dataset.png",
         "mofa_pareto_front_by_dataset.png",
+        "cost_vs_epochs.png",
     ]
 
     for file_name in old_files:
@@ -224,15 +227,18 @@ def run_all_experiments(data_dir):
         cost_vals = np.array([all_results[name][algorithm_name]["cost_mean"] for name in dataset_names], dtype=float)
         return_vals = np.array([all_results[name][algorithm_name]["return_mean"] for name in dataset_names], dtype=float)
         volatility_vals = np.array([all_results[name][algorithm_name]["volatility_mean"] for name in dataset_names], dtype=float)
+        runtime_vals = np.array([all_results[name][algorithm_name]["runtime_mean"] for name in dataset_names], dtype=float)
 
         if len(cost_vals) > 1:
             cost_std = float(np.std(cost_vals, ddof=1))
             return_std = float(np.std(return_vals, ddof=1))
             volatility_std = float(np.std(volatility_vals, ddof=1))
+            runtime_std = float(np.std(runtime_vals, ddof=1))
         else:
             cost_std = 0.0
             return_std = 0.0
             volatility_std = 0.0
+            runtime_std = 0.0
 
         overall_results[algorithm_name] = {
             "cost_mean": float(np.mean(cost_vals)),
@@ -241,6 +247,8 @@ def run_all_experiments(data_dir):
             "return_std": return_std,
             "volatility_mean": float(np.mean(volatility_vals)),
             "volatility_std": volatility_std,
+            "runtime_mean": float(np.mean(runtime_vals)),
+            "runtime_std": runtime_std,
         }
 
     # Graph 2: overall mean cost by algorithm.
@@ -261,7 +269,25 @@ def run_all_experiments(data_dir):
     fig_cost.tight_layout()
     fig_cost.savefig(os.path.join(results_dir, "overall_mean_cost.png"), dpi=200)
 
-    # Graph 3: overall mean return versus volatility.
+    # Graph 3: overall runtime by algorithm.
+    runtime_order = list(algorithm_names)
+    runtime_order.sort(key=lambda name: overall_results[name]["runtime_mean"])
+
+    runtime_means = [overall_results[name]["runtime_mean"] for name in runtime_order]
+    runtime_stds = [overall_results[name]["runtime_std"] for name in runtime_order]
+    runtime_colors = [color_map.get(name, "#bfc5cc") for name in runtime_order]
+
+    fig_runtime, ax_runtime = plt.subplots(figsize=(8, 4))
+    ax_runtime.bar(runtime_order, runtime_means, yerr=runtime_stds, capsize=4, color=runtime_colors, edgecolor="black")
+    ax_runtime.set_title("Overall Mean Runtime by Algorithm")
+    ax_runtime.set_ylabel("Seconds")
+    ax_runtime.set_xlabel("Algorithm")
+    ax_runtime.grid(axis="y", linestyle="--", alpha=0.3)
+    ax_runtime.set_axisbelow(True)
+    fig_runtime.tight_layout()
+    fig_runtime.savefig(os.path.join(results_dir, "overall_runtime.png"), dpi=200)
+
+    # Graph 4: overall mean return versus volatility.
     fig_metrics, ax_metrics = plt.subplots(figsize=(8, 5))
 
     for algorithm_name in algorithm_names:
@@ -293,7 +319,7 @@ def run_all_experiments(data_dir):
     fig_metrics.tight_layout()
     fig_metrics.savefig(os.path.join(results_dir, "overall_return_volatility.png"), dpi=200)
 
-    # Graph 4: assets and best portfolios in risk-return space.
+    # Graph 5: assets and best portfolios in risk-return space.
     n_datasets = len(dataset_names)
     n_cols = 2
     n_rows = int(np.ceil(n_datasets / n_cols))
@@ -349,7 +375,7 @@ def run_all_experiments(data_dir):
     fig_map.tight_layout(rect=[0, 0, 1, 0.95])
     fig_map.savefig(os.path.join(results_dir, "portfolio_risk_return_by_dataset.png"), dpi=200)
 
-    # Graph 5: MOFA Pareto front for each dataset.
+    # Graph 6: MOFA Pareto front for each dataset.
     fig_mofa, axes_mofa = plt.subplots(n_rows, n_cols, figsize=(10, 4 * n_rows))
     axes_mofa = np.asarray(axes_mofa).reshape(-1)
 
@@ -409,6 +435,75 @@ def run_all_experiments(data_dir):
     fig_mofa.tight_layout(rect=[0, 0, 1, 0.95])
     fig_mofa.savefig(os.path.join(results_dir, "mofa_pareto_front_by_dataset.png"), dpi=200)
 
+    # Graph 7: mean cost as the epoch budget grows.
+    epoch_points = [1, 5, 10, 15, 20, 25, n_epoch]
+    epoch_points = sorted(set(epoch_points))
+    cost_lines = {}
+
+    for algorithm_name in algorithm_names:
+        cost_lines[algorithm_name] = []
+        curr_setup = algorithms[algorithm_name]
+
+        for epoch_count in epoch_points:
+            epoch_costs = []
+
+            for i, dataset_name in enumerate(dataset_names):
+                curr_data = datasets[dataset_name]
+                mean_returns = curr_data["mean_returns"]
+                covariance_matrix = curr_data["covariance_matrix"]
+                max_weight = curr_setup["max_weight"]
+                risk_weight = curr_setup["risk_weight"]
+
+                curr_args = curr_setup["build_args"](curr_data["n_assets"])
+                curr_args["n_epoch"] = epoch_count
+                curr_args["mean_returns"] = mean_returns
+                curr_args["covariance_matrix"] = covariance_matrix
+                curr_args["max_weight"] = max_weight
+                curr_args["seed"] = curr_setup["seed_base"] + i
+
+                cost_fn = lambda x, mean_returns=mean_returns, covariance_matrix=covariance_matrix, risk_weight=risk_weight, max_weight=max_weight: portfolio_cost(
+                    x,
+                    mean_returns,
+                    covariance_matrix,
+                    risk_weight,
+                    max_weight=max_weight,
+                )
+
+                if algorithm_name == "mofa":
+                    curr_args["g"] = lambda x, covariance_matrix=covariance_matrix, max_weight=max_weight: portfolio_risk(
+                        normalize_weights(x, max_weight=max_weight),
+                        covariance_matrix,
+                    )
+                    curr_args["h"] = lambda x, mean_returns=mean_returns, max_weight=max_weight: -portfolio_return(
+                        normalize_weights(x, max_weight=max_weight),
+                        mean_returns,
+                    )
+
+                trial_result = run_one_trial(curr_setup["algorithm"], curr_args, cost_fn)
+                epoch_costs.append(trial_result["best_cost"])
+
+            cost_lines[algorithm_name].append(float(np.mean(epoch_costs)))
+
+    fig_lines, ax_lines = plt.subplots(figsize=(8, 5))
+
+    for algorithm_name in algorithm_names:
+        ax_lines.plot(
+            epoch_points,
+            cost_lines[algorithm_name],
+            marker="o",
+            linewidth=2,
+            color=color_map.get(algorithm_name, "#bfc5cc"),
+            label=algorithm_name.upper(),
+        )
+
+    ax_lines.set_title("Mean Cost vs Epochs")
+    ax_lines.set_xlabel("Epochs")
+    ax_lines.set_ylabel("Mean Cost")
+    ax_lines.grid(True, linestyle="--", alpha=0.3)
+    ax_lines.legend(frameon=False)
+    fig_lines.tight_layout()
+    fig_lines.savefig(os.path.join(results_dir, "cost_vs_epochs.png"), dpi=200)
+
     summary_lines = []
     summary_lines.append("Project Settings")
     summary_lines.append("")
@@ -425,6 +520,7 @@ def run_all_experiments(data_dir):
         curr_summary = overall_results[algorithm_name]
         summary_lines.append(algorithm_name)
         summary_lines.append("  mean cost: " + str(curr_summary["cost_mean"]))
+        summary_lines.append("  mean runtime: " + str(curr_summary["runtime_mean"]))
         summary_lines.append("  mean return: " + str(curr_summary["return_mean"]))
         summary_lines.append("  mean volatility: " + str(curr_summary["volatility_mean"]))
         summary_lines.append("")
@@ -443,6 +539,7 @@ def run_all_experiments(data_dir):
             summary_lines.append("  " + algorithm_name)
             summary_lines.append("    cost mean: " + str(curr_summary["cost_mean"]))
             summary_lines.append("    cost std: " + str(curr_summary["cost_std"]))
+            summary_lines.append("    runtime mean: " + str(curr_summary["runtime_mean"]))
             summary_lines.append("    return mean: " + str(curr_summary["return_mean"]))
             summary_lines.append("    risk mean: " + str(curr_summary["risk_mean"]))
             summary_lines.append("    volatility mean: " + str(curr_summary["volatility_mean"]))
@@ -460,9 +557,11 @@ def run_all_experiments(data_dir):
     print("Saved graphs:")
     print("  results/mean_cost_by_dataset.png")
     print("  results/overall_mean_cost.png")
+    print("  results/overall_runtime.png")
     print("  results/overall_return_volatility.png")
     print("  results/portfolio_risk_return_by_dataset.png")
     print("  results/mofa_pareto_front_by_dataset.png")
+    print("  results/cost_vs_epochs.png")
 
     return all_results
 
