@@ -8,6 +8,7 @@ Grayson Siegler grs2116
 '''
 
 import os
+import inspect
 
 import numpy as np
 
@@ -77,8 +78,29 @@ def run_one_trial(algorithm, algorithm_args, cost_fn):
 
     # Build fresh trial inputs if any argument was given as a function.
     for arg_name in list(curr_args.keys()):
-        if callable(curr_args[arg_name]):
-            curr_args[arg_name] = curr_args[arg_name]()
+        curr_val = curr_args[arg_name]
+
+        if callable(curr_val):
+            try:
+                signature = inspect.signature(curr_val)
+            except (TypeError, ValueError):
+                signature = None
+
+            if signature is None:
+                continue
+
+            needs_input = False
+
+            for param in signature.parameters.values():
+                if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+                    continue
+
+                if param.default is inspect._empty:
+                    needs_input = True
+                    break
+
+            if not needs_input:
+                curr_args[arg_name] = curr_val()
 
     curr_args["f"] = cost_fn
 
@@ -196,6 +218,7 @@ def plot_results(results):
         "de": "#2563eb",
         "pso": "#1f9d55",
         "ga": "#7c3aed",
+        "mofa": "#f59e0b",
     }
 
     first_val = next(iter(results.values()))

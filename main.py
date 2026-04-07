@@ -14,8 +14,12 @@ import numpy as np
 
 from algorithms.de import differential_evolution
 from algorithms.ga import genetic_algorithm
+from algorithms.mofa import multiobjective_firefly
 from algorithms.pso import particle_swarm
 from algorithms.sa import simulated_annealing
+from cost import normalize_weights
+from cost import portfolio_return
+from cost import portfolio_risk
 from cost import portfolio_cost
 from evaluate import plot_results
 from evaluate import run_trials
@@ -57,6 +61,16 @@ def run_dataset_experiment(dataset_name, dataset, algorithms):
             max_weight=max_weight,
         )
 
+        if algorithm_name == "mofa":
+            curr_args["g"] = lambda x, covariance_matrix=covariance_matrix, max_weight=max_weight: portfolio_risk(
+                normalize_weights(x, max_weight=max_weight),
+                covariance_matrix,
+            )
+            curr_args["h"] = lambda x, mean_returns=mean_returns, max_weight=max_weight: -portfolio_return(
+                normalize_weights(x, max_weight=max_weight),
+                mean_returns,
+            )
+
         trial_results = run_trials(
             curr_algorithm,
             curr_args,
@@ -86,6 +100,7 @@ def run_all_experiments(data_dir):
         "de": "#2563eb",
         "pso": "#1f9d55",
         "ga": "#7c3aed",
+        "mofa": "#f59e0b",
     }
 
     old_files = [
@@ -97,6 +112,7 @@ def run_all_experiments(data_dir):
         "overall_mean_cost.png",
         "overall_return_volatility.png",
         "portfolio_risk_return_by_dataset.png",
+        "mofa_pareto_front_by_dataset.png",
     ]
 
     for file_name in old_files:
@@ -166,6 +182,20 @@ def run_all_experiments(data_dir):
                 "n_epoch": n_epoch,
                 "mutation_rate": 0.10,
                 "crossover_rate": 0.80,
+            },
+        },
+        "mofa": {
+            "algorithm": multiobjective_firefly,
+            "n_trials": n_trials,
+            "risk_weight": risk_weight,
+            "max_weight": max_weight,
+            "seed_base": 500,
+            "build_args": lambda n_assets: {
+                "X": lambda n_assets=n_assets: np.random.random((population_size, n_assets)),
+                "n_epoch": n_epoch,
+                "beta0": 1.0,
+                "gamma": 1.0,
+                "alpha0": 0.25,
             },
         },
     }
@@ -313,10 +343,71 @@ def run_all_experiments(data_dir):
         plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=color_map["de"], markeredgecolor="black", markersize=8, label="DE"),
         plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=color_map["pso"], markeredgecolor="black", markersize=8, label="PSO"),
         plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=color_map["ga"], markeredgecolor="black", markersize=8, label="GA"),
+        plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=color_map["mofa"], markeredgecolor="black", markersize=8, label="MOFA"),
     ]
-    fig_map.legend(handles=legend_handles, loc="upper center", ncol=5, frameon=False)
+    fig_map.legend(handles=legend_handles, loc="upper center", ncol=6, frameon=False)
     fig_map.tight_layout(rect=[0, 0, 1, 0.95])
     fig_map.savefig(os.path.join(results_dir, "portfolio_risk_return_by_dataset.png"), dpi=200)
+
+    # Graph 5: MOFA Pareto front for each dataset.
+    fig_mofa, axes_mofa = plt.subplots(n_rows, n_cols, figsize=(10, 4 * n_rows))
+    axes_mofa = np.asarray(axes_mofa).reshape(-1)
+
+    for i in range(len(dataset_names)):
+        dataset_name = dataset_names[i]
+        curr_ax = axes_mofa[i]
+        curr_data = datasets[dataset_name]
+        mofa_summary = all_results[dataset_name]["mofa"]
+        best_trial_idx = mofa_summary["best_trial"] - 1
+        mofa_trial = mofa_summary["trial_results"][best_trial_idx]
+        front_X = mofa_trial["final_population"]
+
+        asset_volatility = curr_data["std_devs"]
+        asset_return = curr_data["mean_returns"]
+        front_weights = normalize_weights(front_X, max_weight=max_weight)
+        front_return = portfolio_return(front_weights, curr_data["mean_returns"])
+        front_volatility = np.sqrt(portfolio_risk(front_weights, curr_data["covariance_matrix"]))
+
+        curr_ax.scatter(
+            asset_volatility,
+            asset_return,
+            s=24,
+            color="#d7dbe0",
+            edgecolor="none",
+            alpha=0.9,
+        )
+        curr_ax.scatter(
+            front_volatility,
+            front_return,
+            s=34,
+            color=color_map["mofa"],
+            edgecolor="none",
+            alpha=0.8,
+        )
+        curr_ax.scatter(
+            mofa_summary["volatility_best"],
+            mofa_summary["return_best"],
+            s=120,
+            color=color_map["mofa"],
+            edgecolor="black",
+            linewidth=1.0,
+        )
+        curr_ax.set_title(dataset_name + " MOFA Pareto Front")
+        curr_ax.set_xlabel("Volatility")
+        curr_ax.set_ylabel("Return")
+        curr_ax.grid(True, linestyle="--", alpha=0.3)
+
+    for i in range(len(dataset_names), len(axes_mofa)):
+        axes_mofa[i].axis("off")
+
+    mofa_handles = [
+        plt.Line2D([0], [0], marker="o", color="w", markerfacecolor="#d7dbe0", markersize=7, label="Assets"),
+        plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=color_map["mofa"], markersize=7, label="MOFA Front"),
+        plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=color_map["mofa"], markeredgecolor="black", markersize=9, label="MOFA Best"),
+    ]
+    fig_mofa.legend(handles=mofa_handles, loc="upper center", ncol=3, frameon=False)
+    fig_mofa.tight_layout(rect=[0, 0, 1, 0.95])
+    fig_mofa.savefig(os.path.join(results_dir, "mofa_pareto_front_by_dataset.png"), dpi=200)
 
     summary_lines = []
     summary_lines.append("Project Settings")
@@ -371,6 +462,7 @@ def run_all_experiments(data_dir):
     print("  results/overall_mean_cost.png")
     print("  results/overall_return_volatility.png")
     print("  results/portfolio_risk_return_by_dataset.png")
+    print("  results/mofa_pareto_front_by_dataset.png")
 
     return all_results
 
