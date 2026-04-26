@@ -6,32 +6,24 @@ Genetic algorithm optimizer
 import numpy as np
 
 
+"""
+cost_values(f, X): f is the cost function to evaluate and X is the
+population of solutions to evaluate. This helper evaluates the cost
+function and returns a 1D vector of costs.
+"""
 def cost_values(f, X):
-    """
-    Helper function that evaluates the cost function 
-    and ensures it returns a 1D array of costs.
-
-    :param f: cost function to evaluate
-    :param X: population of solutions to evaluate
-
-    :return: 1D array of cost values corresponding to each solution in X
-    """
     f_X = np.asarray(f(X), dtype=float)
     if f_X.ndim == 2 and np.shape(f_X)[1] == 1:
         return f_X[:, 0]
     return np.reshape(f_X, (-1,))
 
 
+"""
+normalize_population(X): X is the population to normalize. This helper
+makes each solution a valid probability distribution by enforcing
+non-negativity and row sums of 1.
+"""
 def normalize_population(X):
-    """
-    Helper function that normalizes the population so that each solution
-    is a valid probability distribution (non-negative and sums to 1).
-    
-    :param X: population of solutions to normalize
-    
-    :return: normalized population where each solution is non-negative 
-    and sums to 1
-    """
     X = np.maximum(np.asarray(X, dtype=float), 0.0)
     row_sum = np.sum(X, axis=1, keepdims=True)
 
@@ -43,17 +35,12 @@ def normalize_population(X):
     return X / row_sum
 
 
+"""
+select_parent(X, f_X, tournament_size): X is the population and f_X is
+the matching cost vector. tournament_size is the number of candidates
+for tournament selection. This helper returns one selected parent.
+"""
 def select_parent(X, f_X, tournament_size):
-    """
-    Helper function that selects a parent solution from 
-    the population using tournament selection.
-
-    :param X: population of solutions to select from
-    :param f_X: cost values corresponding to each solution in X
-    :param tournament_size: number of solutions to randomly select for the tournament
-
-    :return: selected parent solution from the tournament
-    """
     n_pop = np.shape(X)[0]
     tournament_size = max(2, min(tournament_size, n_pop))
 
@@ -75,21 +62,6 @@ is the number of generations. mutation_rate and crossover_rate are
 the GA settings. This will run the genetic algorithm.
 """
 def genetic_algorithm(X, f, g, h, n_epoch, mutation_rate, crossover_rate):
-    """
-    Genetic algorithm optimizer, fucntion that evolves a population of 
-    solutions to minimize a cost function.
-
-    :param X: starting population of solutions (2D array -> row solution, col is gene)
-    :param f: cost function to minimize
-    :param g: extra input for consistency (not used in this algorithm)
-    :param h: extra input for consistency (not used in this algorithm)
-    :param n_epoch: number of generations to evolve the population
-    :param mutation_rate: probability of mutating each gene in the child solution
-    :param crossover_rate: probability of performing crossover between two parents
-
-    :return: tuple containing the best solution found, its cost, 
-    the final population, and their costs
-    """
     X = X.copy()
 
     if np.shape(X)[0] < 2:
